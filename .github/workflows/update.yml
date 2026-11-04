@@ -1,0 +1,42 @@
+name: Canlı yayın kimliğini güncelle
+
+on:
+  schedule:
+    - cron: '17 * * * *'   # saatte bir
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: YouTube'dan güncel canlı yayını sor
+        env:
+          YT_API_KEY: ${{ secrets.YT_API_KEY }}
+        run: |
+          set -euo pipefail
+          CHANNEL=$(jq -r .channelId live.json)
+          OLD=$(jq -r .videoId live.json)
+          RESP=$(curl -fsS "https://www.googleapis.com/youtube/v3/search?part=id&channelId=${CHANNEL}&eventType=live&type=video&order=viewCount&maxResults=1&key=${YT_API_KEY}")
+          NEW=$(echo "$RESP" | jq -r '.items[0].id.videoId // empty')
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          if [ -n "$NEW" ] && [ "$NEW" != "$OLD" ]; then
+            echo "Yeni canlı yayın: $OLD -> $NEW"
+            jq --arg v "$NEW" --arg t "$NOW" '.videoId=$v | .updatedAt=$t | .checkedAt=$t' live.json > tmp && mv tmp live.json
+          elif [ "$(date -u +%H)" = "00" ]; then
+            # Günde bir kez kontrol zamanını yaz: depo etkin kalsın (GitHub 60 gün işlemsiz depoda zamanlanmış görevi durdurur).
+            jq --arg t "$NOW" '.checkedAt=$t' live.json > tmp && mv tmp live.json
+          else
+            echo "Değişiklik yok (${NEW:-canlı yayın bulunamadı})"
+          fi
+      - name: Değişikliği kaydet
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -am "live.json güncellendi"
+            git push
+          fi
