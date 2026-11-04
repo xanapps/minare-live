@@ -1,4 +1,4 @@
-name: Canlı yayın kimliğini güncelle
+name: Update live video ID
 
 on:
   schedule:
